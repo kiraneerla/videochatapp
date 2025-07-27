@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Simple 2-Person Video Chat</title>
+  <style>
+    video {
+      width: 300px;
+      height: 225px;
+      background: black;
+      margin: 10px;
+    }
+    .chat-box {
+      max-width: 600px;
+      margin: 20px auto;
+      background: white;
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    }
+    .messages {
+      max-height: 200px;
+      overflow-y: auto;
+      text-align: left;
+      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      padding: 5px;
+      font-size: 14px;
+    }
+    #messageInput {
+      width: 70%;
+      padding: 8px;
+    }
+    #sendBtn {
+      padding: 8px 12px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      margin: 0;
+      padding: 1rem;
+      text-align: center;
+    }
+    .controls button {
+      margin: 5px;
+      padding: 10px 15px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: none;
+      background-color: #4f46e5;
+      color: white;
+      cursor: pointer;
+    }
+    .controls button:hover {
+      background-color: #4338ca;
+    }
+    .videos {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    video {
+      width: 100%;
+      max-width: 300px;
+      height: auto;
+      border: 3px solid #4f46e5;
+      border-radius: 10px;
+    }
+    @media (max-width: 768px) {
+      .videos {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h2>🔥 Simple Video Chat</h2>
+
+  <div class="controls">
+    <button id="startBtn">🎥 Start Camera</button>
+    <button id="callBtn">📞 Call</button>
+    <button id="answerBtn">✅ Answer</button>
+    <button id="muteBtn">🔇 Mute</button>
+    <button id="videoToggleBtn">🙈 Hide Video</button>
+    <button id="hangupBtn">❌ Hang Up</button>
+  </div>
+
+  <div class="videos">
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+
+  <div class="chat-box">
+    <div id="messages" class="messages"></div>
+    <input id="messageInput" type="text" placeholder="Type your message..." />
+    <button id="sendBtn">Send</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getDatabase, ref, set, onValue, remove, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDOtHed_EhGROA7m9RqYUjrRJwXx672U4M",
+      authDomain: "my-videochat-app-d4b2e.firebaseapp.com",
+      projectId: "my-videochat-app-d4b2e",
+      storageBucket: "my-videochat-app-d4b2e.appspot.com",
+      messagingSenderId: "1002363600187",
+      appId: "1:1002363600187:web:af5143ee00abd4c4fecb1e",
+      measurementId: "G-W6HM1HHKQ0"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const startBtn = document.getElementById('startBtn');
+    const callBtn = document.getElementById('callBtn');
+    const answerBtn = document.getElementById('answerBtn');
+    const hangupBtn = document.getElementById('hangupBtn');
+    const muteBtn = document.getElementById('muteBtn');
+    const videoToggleBtn = document.getElementById('videoToggleBtn');
+    const messagesDiv = document.getElementById("messages");
+    const sendBtn = document.getElementById("sendBtn");
+    const messageInput = document.getElementById("messageInput");
+
+    let localStream = null;
+    let peerConnection = null;
+    let isAudioMuted = false;
+    let isVideoOff = false;
+
+    const servers = {
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    };
+
+    const roomRef = ref(db, 'video-chat-room');
+    const messagesRef = ref(db, 'video-chat-room/messages');
+
+    startBtn.onclick = async () => {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+      } catch (e) {
+        alert('Camera access denied or failed: ' + e);
+      }
+    };
+
+    sendBtn.onclick = () => {
+      const msg = messageInput.value.trim();
+      if (msg) {
+        const timestamp = Date.now();
+        set(ref(db, `video-chat-room/messages/${timestamp}`), { text: msg });
+        messageInput.value = "";
+      }
+    };
+
+    onValue(messagesRef, (snapshot) => {
+      const data = snapshot.val();
+      messagesDiv.innerHTML = "";
+      for (let key in data) {
+        const msg = data[key];
+        const p = document.createElement("p");
+        p.innerText = msg.text;
+        messagesDiv.appendChild(p);
+      }
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+
+    muteBtn.onclick = () => {
+      if (!localStream) return;
+      isAudioMuted = !isAudioMuted;
+      localStream.getAudioTracks()[0].enabled = !isAudioMuted;
+      muteBtn.innerText = isAudioMuted ? '🔈 Unmute' : '🔇 Mute';
+    };
+
+    videoToggleBtn.onclick = () => {
+      if (!localStream) return;
+      isVideoOff = !isVideoOff;
+      localStream.getVideoTracks()[0].enabled = !isVideoOff;
+      videoToggleBtn.innerText = isVideoOff ? '👀 Show Video' : '🙈 Hide Video';
+    };
+
+    callBtn.onclick = async () => {
+      peerConnection = new RTCPeerConnection(servers);
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          push(ref(db, 'video-chat-room/candidates/caller'), event.candidate.toJSON());
+        }
+      };
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      await set(ref(db, 'video-chat-room/offer'), offer);
+
+      onValue(ref(db, 'video-chat-room/answer'), async (snapshot) => {
+        const answer = snapshot.val();
+        if (answer && peerConnection.signalingState !== 'stable') {
+          await peerConnection.setRemoteDescription(answer);
+        }
+      });
+
+      onValue(ref(db, 'video-chat-room/candidates/callee'), async (snapshot) => {
+        const candidates = snapshot.val();
+        if (candidates) {
+          for (let key in candidates) {
+            await peerConnection.addIceCandidate(candidates[key]);
+          }
+        }
+      });
+    };
+
+    answerBtn.onclick = async () => {
+      peerConnection = new RTCPeerConnection(servers);
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          push(ref(db, 'video-chat-room/candidates/callee'), event.candidate.toJSON());
+        }
+      };
+
+      onValue(ref(db, 'video-chat-room/offer'), async (snapshot) => {
+        const offer = snapshot.val();
+        if (offer) {
+          await peerConnection.setRemoteDescription(offer);
+
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+
+          await set(ref(db, 'video-chat-room/answer'), answer);
+        }
+      });
+
+      onValue(ref(db, 'video-chat-room/candidates/caller'), async (snapshot) => {
+        const candidates = snapshot.val();
+        if (candidates) {
+          for (let key in candidates) {
+            await peerConnection.addIceCandidate(candidates[key]);
+          }
+        }
+      });
+    };
+
+    hangupBtn.onclick = async () => {
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+      remoteVideo.srcObject = null;
+      await remove(ref(db, 'video-chat-room'));
+    };
+  </script>
+</body>
+</html>
